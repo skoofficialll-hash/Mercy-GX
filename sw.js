@@ -1,5 +1,5 @@
 /* Mercy GX — offline cache */
-const CACHE = "mercy-gx-v1";
+const CACHE = "mercy-gx-v2";
 const ASSETS = [
   "./",
   "./index.html",
