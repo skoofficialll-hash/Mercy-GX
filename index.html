@@ -120,6 +120,30 @@
   .mcard.done{background:rgba(63,158,143,.14);color:var(--teal);border-color:rgba(63,158,143,.35)}
   .mcard.done:after{display:none}
 
+
+  /* ---- search view ---- */
+  .searchview{padding:12px 16px 90px}
+  .svhead{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .svhead button{width:34px;height:34px;border-radius:9px;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;color:var(--dim);flex:0 0 auto}
+  .svhead .q{min-width:0}
+  .svhead .q b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .svhead .q span{display:block;font-family:var(--mono);font-size:9.5px;color:var(--dim2);letter-spacing:.08em;margin-top:3px}
+  .srcrow{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}
+  .srcrow a{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:7px 11px;text-decoration:none}
+  .srcrow a:active{background:var(--surface2)}
+  .res{display:flex;gap:12px;padding:13px;border:1px solid var(--line);border-radius:13px;background:var(--surface);margin-bottom:9px;text-decoration:none;color:inherit}
+  .res:active{border-color:var(--accent-line)}
+  .res .th{width:56px;height:56px;border-radius:9px;background:var(--surface2);flex:0 0 auto;overflow:hidden;display:grid;place-items:center;font-family:var(--mono);font-size:15px;color:var(--dim2);border:1px solid var(--line)}
+  .res .th img{width:100%;height:100%;object-fit:cover;display:block}
+  .res .tx{min-width:0}
+  .res .ti{font-size:13.5px;font-weight:600;margin-bottom:4px;line-height:1.25}
+  .res .sn{font-size:12px;color:var(--dim);line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .res .src{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;color:var(--teal);margin-top:6px;display:block}
+  .skel{height:82px;border-radius:13px;background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:sh 1.2s infinite;margin-bottom:9px}
+  @keyframes sh{from{background-position:200% 0}to{background-position:-200% 0}}
+  .svnote{font-size:11.5px;color:var(--dim2);line-height:1.55;margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .svnote b{color:var(--dim)}
+
   @media (min-width:620px){
     .grid{grid-template-columns:repeat(3,1fr)}
     .hero h1{font-size:38px}
@@ -134,7 +158,7 @@
   <span class="badge" id="netBadge">OFFLINE READY</span>
 </div>
 
-<div class="pad">
+<div class="pad" id="homeView">
   <div class="search">
     <input id="q" placeholder="Search the web" spellcheck="false" autocomplete="off">
     <button id="qgo">Go</button>
@@ -163,6 +187,23 @@
     <span>swipe se khelo</span>
   </footer>
 </div>
+
+
+<section class="searchview" id="searchView" hidden>
+  <div class="svhead">
+    <button id="svBack" aria-label="Back">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <div class="q"><b id="svQuery">—</b><span id="svMeta">searching…</span></div>
+  </div>
+  <div class="srcrow" id="svLinks"></div>
+  <div id="svResults"></div>
+  <div class="svnote" id="svNote">
+    Results <b>Wikipedia</b> aur <b>DuckDuckGo</b> ke public APIs se aate hain — ye asli network calls hain, demo nahi.
+    Poori web browsing (kisi bhi site ko kholna) browser page ke andar possible nahi hoti (CORS + X-Frame-Options),
+    wo kaam desktop build karta hai.
+  </div>
+</section>
 
 <div class="stage" id="stage">
   <div class="stagebar">
@@ -787,8 +828,9 @@
     function search(){
       var q = document.getElementById("q").value.trim();
       if(!q) return;
-      openExternal("https://www.google.com/search?q=" + encodeURIComponent(q));
       document.getElementById("q").value = "";
+      document.getElementById("q").blur();
+      runSearch(q);
     }
     document.getElementById("qgo").addEventListener("click", search);
     document.getElementById("q").addEventListener("keydown", function(e){ if(e.key === "Enter") search(); });
@@ -804,6 +846,128 @@
 
   boot();
 
+
+
+  /* =========================================================
+     REAL SEARCH — Wikipedia + DuckDuckGo public APIs
+  ========================================================= */
+  function svEsc(v){
+    return String(v == null ? "" : v).replace(/[&<>"']/g, function(c){
+      return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c];
+    });
+  }
+
+  function fetchWiki(q){
+    var url = "https://en.wikipedia.org/w/api.php?action=query&generator=search" +
+      "&gsrsearch=" + encodeURIComponent(q) +
+      "&gsrlimit=8&prop=pageimages%7Cextracts&exintro=1&explaintext=1&exsentences=2" +
+      "&piprop=thumbnail&pithumbsize=160&format=json&origin=*";
+    return fetch(url, { mode:"cors" })
+      .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function(d){
+        var pages = (d && d.query && d.query.pages) ? d.query.pages : {};
+        return Object.keys(pages).map(function(k){ return pages[k]; })
+          .sort(function(a,b){ return (a.index || 0) - (b.index || 0); })
+          .map(function(p){
+            return {
+              title: p.title,
+              extract: p.extract || "",
+              thumb: p.thumbnail ? p.thumbnail.source : null,
+              url: "https://en.wikipedia.org/wiki/" + encodeURIComponent(String(p.title).replace(/ /g, "_")),
+              src: "WIKIPEDIA"
+            };
+          });
+      });
+  }
+
+  function fetchDDG(q){
+    var url = "https://api.duckduckgo.com/?q=" + encodeURIComponent(q) + "&format=json&no_html=1&skip_disambig=1";
+    return fetch(url, { mode:"cors" })
+      .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function(d){
+        var out = [];
+        if(d && d.AbstractText){
+          out.push({
+            title: d.Heading || q,
+            extract: d.AbstractText,
+            thumb: d.Image ? ("https://duckduckgo.com" + d.Image) : null,
+            url: d.AbstractURL || ("https://duckduckgo.com/?q=" + encodeURIComponent(q)),
+            src: "DUCKDUCKGO"
+          });
+        }
+        (d && d.RelatedTopics ? d.RelatedTopics : []).forEach(function(t){
+          if(t && t.FirstURL && t.Text && out.length < 4){
+            out.push({
+              title: String(t.Text).split(" - ")[0].slice(0, 70),
+              extract: t.Text,
+              thumb: null,
+              url: t.FirstURL,
+              src: "DUCKDUCKGO"
+            });
+          }
+        });
+        return out;
+      })
+      .catch(function(){ return []; });
+  }
+
+  function renderResults(list, q, err){
+    var box = document.getElementById("svResults");
+    var meta = document.getElementById("svMeta");
+    if(!list.length){
+      box.innerHTML = '<div class="empty" style="padding:22px;text-align:center;color:#626b77;font-size:13px;line-height:1.6">' +
+        (err ? "Search nahi chal payi — " + svEsc(err) + "<br>Internet check karo, ya neeche se Google par kholo." :
+               'Kuch nahi mila "' + svEsc(q) + '" ke liye.') + '</div>';
+      meta.textContent = err ? "network error" : "no results";
+      return;
+    }
+    meta.textContent = list.length + " results · live";
+    box.innerHTML = list.map(function(r){
+      return '<a class="res" href="' + svEsc(r.url) + '" target="_blank" rel="noopener">' +
+        '<span class="th">' + (r.thumb ? '<img src="' + svEsc(r.thumb) + '" alt="" loading="lazy" data-fb="' + svEsc(r.title.slice(0,2).toUpperCase()) + '">' : svEsc(r.title.slice(0,2).toUpperCase())) + '</span>' +
+        '<span class="tx"><span class="ti">' + svEsc(r.title) + '</span>' +
+        '<span class="sn">' + svEsc(r.extract) + '</span>' +
+        '<span class="src">' + svEsc(r.src) + '</span></span></a>';
+    }).join("");
+
+    // if a thumbnail fails to load, fall back to initials instead of a broken icon
+    Array.prototype.forEach.call(box.querySelectorAll("img[data-fb]"), function(img){
+      img.addEventListener("error", function(){
+        var p = img.parentNode;
+        p.textContent = img.getAttribute("data-fb") || "";
+        img.remove();
+      });
+    });
+  }
+
+  function runSearch(q){
+    document.getElementById("homeView").hidden = true;
+    var sv = document.getElementById("searchView");
+    sv.hidden = false;
+    document.getElementById("svQuery").textContent = q;
+    document.getElementById("svMeta").textContent = "searching…";
+    document.getElementById("svResults").innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+    document.getElementById("svLinks").innerHTML =
+      '<a href="https://www.google.com/search?q=' + encodeURIComponent(q) + '" target="_blank" rel="noopener">Google ↗</a>' +
+      '<a href="https://duckduckgo.com/?q=' + encodeURIComponent(q) + '" target="_blank" rel="noopener">DuckDuckGo ↗</a>' +
+      '<a href="https://www.bing.com/search?q=' + encodeURIComponent(q) + '" target="_blank" rel="noopener">Bing ↗</a>';
+    window.scrollTo(0, 0);
+
+    Promise.all([
+      fetchWiki(q).catch(function(e){ return { error: String(e.message || e) }; }),
+      fetchDDG(q)
+    ]).then(function(res){
+      var wiki = Array.isArray(res[0]) ? res[0] : [];
+      var err = (!Array.isArray(res[0]) && res[0] && res[0].error) ? res[0].error : null;
+      renderResults(res[1].concat(wiki), q, err);
+    });
+  }
+
+  document.getElementById("svBack").addEventListener("click", function(){
+    document.getElementById("searchView").hidden = true;
+    document.getElementById("homeView").hidden = false;
+    window.scrollTo(0, 0);
+  });
 
   /* ---------------- PWA: register service worker ---------------- */
   if("serviceWorker" in navigator){
