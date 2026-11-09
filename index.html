@@ -121,6 +121,28 @@
   .mcard.done:after{display:none}
 
 
+
+  /* ---- settings sheet ---- */
+  .gearbtn{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:var(--dim);border:1px solid var(--line);background:var(--surface);margin-left:auto;flex:0 0 auto}
+  .badge{margin-left:8px}
+  .sheet{position:fixed;inset:0;z-index:70;background:rgba(6,8,10,.72);backdrop-filter:blur(6px);display:flex;align-items:flex-end}
+  .sheet[hidden]{display:none}
+  .sheetbox{width:100%;max-height:86vh;overflow:auto;background:var(--surface);border-top:1px solid var(--line2);border-radius:18px 18px 0 0;padding:16px 16px calc(22px + env(safe-area-inset-bottom))}
+  .sheethead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .sheethead b{font-size:15px}
+  .sheethead button{width:30px;height:30px;border-radius:8px;color:var(--dim);background:var(--surface2);border:1px solid var(--line)}
+  .shnote{margin:0 0 14px;font-size:11.5px;color:var(--dim2);line-height:1.55}
+  .fld{display:block;margin-bottom:12px}
+  .fld span{display:block;font-size:12px;margin-bottom:6px;color:var(--dim)}
+  .fld em{font-style:normal;font-family:var(--mono);font-size:9.5px;color:var(--dim2);display:block;margin-top:2px}
+  .fld input{width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:11px 13px;font-size:15px;outline:none;color:var(--text)}
+  .fld input:focus{border-color:var(--accent-line)}
+  .sheetbtns{display:flex;gap:8px;margin-top:16px}
+  .sheetbtns .btn{flex:1;justify-content:center}
+  .hintcard{border:1px dashed var(--accent-line);background:var(--accent-soft);border-radius:12px;padding:12px 13px;margin-bottom:12px;font-size:12px;line-height:1.55;color:var(--text)}
+  .hintcard b{display:block;margin-bottom:4px;font-size:12.5px}
+  .hintcard button{display:inline-block;margin-top:10px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--accent);border:1px solid var(--accent-line);border-radius:7px;padding:6px 10px}
+
   /* ---- search view ---- */
   .searchview{padding:12px 16px 90px}
   .svhead{display:flex;align-items:center;gap:10px;margin-bottom:14px}
@@ -155,6 +177,9 @@
 <div class="appbar">
   <div class="mark">M</div>
   <div class="titles"><b>MERCY GX</b><span id="clock">gamehub</span></div>
+  <button class="gearbtn" id="btnSettings" aria-label="Search settings">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
+  </button>
   <span class="badge" id="netBadge">OFFLINE READY</span>
 </div>
 
@@ -204,6 +229,28 @@
     wo kaam desktop build karta hai.
   </div>
 </section>
+
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheetbox">
+    <div class="sheethead"><b>Search settings</b><button id="sheetClose" aria-label="Close">✕</button></div>
+    <p class="shnote">Wikipedia aur DuckDuckGo bina key ke chalte hain. Asli Google web results ke liye Serper key daalo — key sirf is device par (localStorage) save hoti hai, kahin bhejti nahi.</p>
+
+    <label class="fld"><span>Serper API key<em>2,500 free queries, card nahi chahiye · google.serper.dev</em></span>
+      <input id="inSerper" placeholder="serper key…" autocomplete="off" spellcheck="false"></label>
+
+    <label class="fld"><span>Google CSE key<em>sirf purane customers ke liye — naye signups band hain</em></span>
+      <input id="inCseKey" placeholder="AIza…" autocomplete="off" spellcheck="false"></label>
+
+    <label class="fld"><span>Google CSE cx<em>search engine id (cx) from programmablesearchengine.google.com</em></span>
+      <input id="inCseCx" placeholder="12ab34cd56ef7" autocomplete="off" spellcheck="false"></label>
+
+    <div class="sheetbtns">
+      <button class="btn" id="sheetSave">Save</button>
+      <button class="btn btn--ghost" id="sheetClear">Clear keys</button>
+    </div>
+  </div>
+</div>
 
 <div class="stage" id="stage">
   <div class="stagebar">
@@ -940,6 +987,71 @@
     });
   }
 
+  /* ---- optional keyed providers (full web results) ---- */
+  var searchCfg = get("mgx.searchcfg", { serper:"", cseKey:"", cseCx:"" });
+  if(searchCfg && searchCfg.brave && !searchCfg.serper){ searchCfg.serper = ""; }
+
+  /* Serper returns real Google results as JSON and allows browser CORS —
+     free tier is 2,500 queries with no card. */
+  function fetchSerper(q){
+    var key = String(searchCfg.serper || "").trim();
+    if(!key) return Promise.resolve([]);
+    return fetch("https://google.serper.dev/search", {
+      method: "POST",
+      headers: { "X-API-KEY": key, "Content-Type": "application/json" },
+      body: JSON.stringify({ q: q, num: 10 })
+    }).then(function(r){
+      if(!r.ok) throw new Error("Serper HTTP " + r.status);
+      return r.json();
+    }).then(function(d){
+      var out = [];
+      if(d && d.answerBox && (d.answerBox.answer || d.answerBox.snippet)){
+        out.push({
+          title: d.answerBox.title || "Direct answer",
+          extract: d.answerBox.answer || d.answerBox.snippet,
+          thumb: null,
+          url: d.answerBox.link || ("https://www.google.com/search?q=" + encodeURIComponent(q)),
+          src: "ANSWER"
+        });
+      }
+      (d && d.organic ? d.organic : []).forEach(function(it){
+        out.push({
+          title: it.title || it.link,
+          extract: it.snippet || "",
+          thumb: null,
+          url: it.link,
+          src: "SERPER"
+        });
+      });
+      return out;
+    });
+  }
+
+  function fetchCSE(q){
+    var key = String(searchCfg.cseKey || "").trim();
+    var cx = String(searchCfg.cseCx || "").trim();
+    if(!key || !cx) return Promise.resolve([]);
+    var url = "https://www.googleapis.com/customsearch/v1?key=" + encodeURIComponent(key) +
+      "&cx=" + encodeURIComponent(cx) + "&num=8&q=" + encodeURIComponent(q);
+    return fetch(url).then(function(r){
+      if(!r.ok) throw new Error("Google CSE HTTP " + r.status);
+      return r.json();
+    }).then(function(d){
+      return (d.items || []).map(function(it){
+        var pm = it.pagemap || {};
+        var th = pm.cse_thumbnail && pm.cse_thumbnail[0] ? pm.cse_thumbnail[0].src : null;
+        return { title: it.title, extract: it.snippet || "", thumb: th, url: it.link, src: "GOOGLE" };
+      });
+    });
+  }
+
+  function hintCard(){
+    return '<div class="hintcard"><b>Poori web search chahiye?</b>' +
+      'Abhi results Wikipedia aur DuckDuckGo se aa rahe hain. Serper ki free key (2,500 queries, card nahi chahiye) ' +
+      'daal do to asli Google web results — kisi bhi site ke — yahin andar dikhne lagenge.' +
+      '<button id="hintKey">Add API key</button></div>';
+  }
+
   function runSearch(q){
     document.getElementById("homeView").hidden = true;
     var sv = document.getElementById("searchView");
@@ -953,20 +1065,77 @@
       '<a href="https://www.bing.com/search?q=' + encodeURIComponent(q) + '" target="_blank" rel="noopener">Bing ↗</a>';
     window.scrollTo(0, 0);
 
-    Promise.all([
-      fetchWiki(q).catch(function(e){ return { error: String(e.message || e) }; }),
-      fetchDDG(q)
-    ]).then(function(res){
-      var wiki = Array.isArray(res[0]) ? res[0] : [];
-      var err = (!Array.isArray(res[0]) && res[0] && res[0].error) ? res[0].error : null;
-      renderResults(res[1].concat(wiki), q, err);
-    });
+    function wrap(p, tag){
+      return p.then(function(v){ return { k:tag, v:v }; })
+              .catch(function(e){ return { k:tag, e:String((e && e.message) || e) }; });
+    }
+
+    Promise.all([ wrap(fetchSerper(q), "serper"), wrap(fetchCSE(q), "cse"),
+                  wrap(fetchDDG(q), "ddg"), wrap(fetchWiki(q), "wiki") ])
+      .then(function(parts){
+        var by = {}, errs = [];
+        parts.forEach(function(p){
+          by[p.k] = Array.isArray(p.v) ? p.v : [];
+          if(p.e) errs.push(p.k.toUpperCase() + " — " + p.e);
+        });
+        var list = [].concat(by.serper, by.cse, by.ddg, by.wiki);
+        renderResults(list, q, list.length ? null : (errs[0] || null));
+
+        var box = document.getElementById("svResults");
+        if(!searchCfg.serper && !searchCfg.cseKey){
+          var h = document.createElement("div");
+          h.innerHTML = hintCard();
+          box.insertBefore(h.firstElementChild, box.firstChild);
+          var b = document.getElementById("hintKey");
+          if(b) b.addEventListener("click", openSheet);
+        }
+        if(errs.length){
+          var n = document.getElementById("svNote");
+          n.innerHTML = '<b>Kuch source fail hue:</b><br>' + errs.map(svEsc).join("<br>") +
+            '<br><br>Serper/Google key ke bina sirf Wikipedia aur DuckDuckGo chalte hain. CORS block ho to site naye tab mein kholo.';
+        }
+      });
   }
 
   document.getElementById("svBack").addEventListener("click", function(){
     document.getElementById("searchView").hidden = true;
     document.getElementById("homeView").hidden = false;
     window.scrollTo(0, 0);
+  });
+
+  /* ---- search settings sheet ---- */
+  var sheetEl = document.getElementById("sheet");
+
+  function openSheet(){
+    document.getElementById("inSerper").value = searchCfg.serper || "";
+    document.getElementById("inCseKey").value = searchCfg.cseKey || "";
+    document.getElementById("inCseCx").value = searchCfg.cseCx || "";
+    sheetEl.hidden = false;
+  }
+  function closeSheet(){ sheetEl.hidden = true; }
+
+  document.getElementById("btnSettings").addEventListener("click", openSheet);
+  document.getElementById("sheetClose").addEventListener("click", closeSheet);
+  sheetEl.addEventListener("click", function(e){ if(e.target === sheetEl) closeSheet(); });
+
+  document.getElementById("sheetSave").addEventListener("click", function(){
+    searchCfg = {
+      serper: document.getElementById("inSerper").value.trim(),
+      cseKey: document.getElementById("inCseKey").value.trim(),
+      cseCx: document.getElementById("inCseCx").value.trim()
+    };
+    set("mgx.searchcfg", searchCfg);
+    closeSheet();
+    var q = document.getElementById("svQuery").textContent;
+    if(!document.getElementById("searchView").hidden && q && q !== "—") runSearch(q);
+  });
+
+  document.getElementById("sheetClear").addEventListener("click", function(){
+    searchCfg = { serper:"", cseKey:"", cseCx:"" };
+    set("mgx.searchcfg", searchCfg);
+    document.getElementById("inSerper").value = "";
+    document.getElementById("inCseKey").value = "";
+    document.getElementById("inCseCx").value = "";
   });
 
   /* ---------------- PWA: register service worker ---------------- */
